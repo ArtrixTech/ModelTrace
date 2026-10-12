@@ -165,7 +165,7 @@ export function analyzeGlobalOutputs(outputs, bank) {
     const minimum = expected ? Math.max(80, Math.ceil(expected * 0.55)) : 80;
     const accepted = numbers.length >= minimum;
     diagnostics.push({ index, parsed_numbers: numbers.length, minimum_numbers: minimum, accepted });
-    if (accepted) valid.push({ numbers, counts: countNumbers(numbers), scores: robustScoreNumbers(numbers, bank) });
+    if (accepted) valid.push({ index, numbers, counts: countNumbers(numbers), scores: robustScoreNumbers(numbers, bank) });
   });
   if (!valid.length) throw new Error("没有可用回答：请粘贴完整数字序列；拒答或严重截断的回答不会计入。");
 
@@ -195,6 +195,34 @@ export function analyzeGlobalOutputs(outputs, bank) {
   ]));
   results.forEach((item) => { item.conditional_probability = item.probability / familyProbabilities[item.family]; });
   const winningFamily = familyOrder.reduce((best, family) => familyProbabilities[family] > familyProbabilities[best] ? family : best);
+
+  // [fireye fork] Per-response attribution + vote consistency. The pooled softmax assumes all
+  // answers come from ONE model; a mixed pool (or an out-of-bank model) still yields a
+  // confident pooled top-1. Per-answer votes expose that heterogeneity.
+  const singleBeta = Number(bank.calibration["1"].beta);
+  const perResponse = valid.map((item) => {
+    const probs = softmax(item.scores.map((value) => singleBeta * value));
+    const top = probs.reduce((best, value, index) => value > probs[best] ? index : best, 0);
+    const model = modelEntries[modelIds[top]];
+    return {
+      index: item.index,
+      prediction: model.id,
+      family: model.family || "models",
+      probability: probs[top],
+    };
+  });
+  const tally = (key) => perResponse.reduce((acc, item) => ({ ...acc, [item[key]]: (acc[item[key]] || 0) + 1 }), {});
+  const modelVotes = tally("prediction");
+  const familyVotes = tally("family");
+  const consistency = {
+    responses: perResponse.length,
+    model_votes: modelVotes,
+    family_votes: familyVotes,
+    prediction_votes: modelVotes[results[0].model] || 0,
+    family_prediction_votes: familyVotes[winningFamily] || 0,
+    prediction_share: (modelVotes[results[0].model] || 0) / perResponse.length,
+    family_share: (familyVotes[winningFamily] || 0) / perResponse.length,
+  };
   return {
     prediction: results[0].model,
     prediction_name: results[0].display_name,
@@ -207,6 +235,8 @@ export function analyzeGlobalOutputs(outputs, bank) {
     family_prediction_name: familyNames[winningFamily],
     family_probability: familyProbabilities[winningFamily],
     family_probabilities: familyOrder.map((family) => ({ family, display_name: familyNames[family], probability: familyProbabilities[family] })),
+    per_response: perResponse,
+    consistency,
     method: "统一全局稳健数字指纹",
   };
 }
