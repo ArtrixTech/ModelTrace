@@ -204,11 +204,20 @@ export function analyzeGlobalOutputs(outputs, bank) {
     const probs = softmax(item.scores.map((value) => singleBeta * value));
     const top = probs.reduce((best, value, index) => value > probs[best] ? index : best, 0);
     const model = modelEntries[modelIds[top]];
+    const byModel = Object.fromEntries(modelIds.map((id, index) => [id, probs[index]]));
+    const byFamily = {};
+    modelIds.forEach((id, index) => {
+      const family = modelEntries[id].family || "models";
+      byFamily[family] = (byFamily[family] || 0) + probs[index];
+    });
     return {
       index: item.index,
       prediction: model.id,
       family: model.family || "models",
       probability: probs[top],
+      // Full N=1 posterior so callers can test a claimed label per answer.
+      probabilities: byModel,
+      family_probabilities: byFamily,
     };
   });
   const tally = (key) => perResponse.reduce((acc, item) => ({ ...acc, [item[key]]: (acc[item[key]] || 0) + 1 }), {});
