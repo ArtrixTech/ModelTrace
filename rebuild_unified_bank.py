@@ -13,12 +13,13 @@ SOURCES = {
     "gpt": ("GPT", PROJECT / "data" / "gpt_reference.jsonl"),
     "claude": ("Claude", PROJECT / "data" / "claude_reference.jsonl"),
 }
-# [fireye fork] Open-weight models collected via research/collect_ollama.py. Each row carries
-# its own family_id; the file is optional so upstream-only checkouts still rebuild.
-OPEN_SOURCE = PROJECT / "data" / "open_reference.jsonl"
+# [fireye fork] Models collected via research/collect_ollama.py and research/collect_cursor.py.
+# Each row carries its own family_id; the files are optional so upstream-only checkouts still rebuild.
+OPEN_SOURCES = [PROJECT / "data" / "open_reference.jsonl", PROJECT / "data" / "cursor_reference.jsonl"]
 OPEN_FAMILY_NAMES = {
     "glm": "GLM", "kimi": "Kimi", "deepseek": "DeepSeek", "minimax": "MiniMax", "mistral": "Mistral",
     "nemotron": "Nemotron", "gemma": "Gemma", "gpt-oss": "gpt-oss", "qwen": "Qwen",
+    "gemini": "Gemini",
 }
 
 
@@ -26,8 +27,8 @@ def reference_rows() -> list[dict]:
     rows = []
     for family_id, (family_name, path) in SOURCES.items():
         rows.extend({**row, "family_id": family_id, "family_name": family_name} for row in read_rows(path))
-    if OPEN_SOURCE.exists():
-        open_rows = read_rows(OPEN_SOURCE)
+    open_rows = [row for path in OPEN_SOURCES if path.exists() for row in read_rows(path)]
+    if open_rows:
         # Enrol only models with every reference query: incomplete models would shrink the
         # "complete environment" set used by the robust nuisance fit for everyone.
         needed = {row["challenge_id"] for row in rows}
